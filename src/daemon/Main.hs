@@ -1,51 +1,94 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Main where
 
 import Network.IIRCC
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Exception (IOException)
 import Control.Monad
+import Control.Monad.Catch as C
+import Data.ByteString as BS (ByteString)
 import Data.Typeable
-import Network.IRC
-import Network.Simple.TCP
+import Network.Simple.TCP as TCP
+import Network.Socket (close)
 import Pipes
+import Pipes.Concurrent as PC
 import Pipes.Core
-import Pipes.Safe
-import qualified Pipes.Network.TCP.Safe as PTCP
+import qualified Pipes.Prelude as PP
+import Pipes.Safe as PS (SafeT, runSafeT)
 import System.IO.Error
+import GHC.IO.Exception
+
+-- Run a test IRC daemon with:  ngircd -n
 
 main :: IO ()
-main = runSafeT . runEffect $ for (ircSession 10 servers) $ liftIO . print
-  where
-    servers =
-      cycle [
-        ("aoeuaoeuaoeusntg.com", "999"),
-        ("blarghskxl.org", "666"),
-        ("youtube.com", "80")
-      ]
+main = do
+  (connection, connInput, connOutput) <- runConnection "localhost" "6667" 4096
+  atomically $ do
+    PC.send connOutput $ Send "NICK rotaerk\r\n"
+    PC.send connOutput $ Send "USER rotaerk 0 * :Matt\r\n"
+  runEffect $ for (fromInput connInput) $ liftIO . print
+  wait connection
 
-ircSession :: Int -> [(HostName, ServiceName)] -> Producer IrcEvent (SafeT IO) ()
-ircSession reconnectDelay = ircSession'
-  where
-    ircSession' [] = return ()
-    ircSession' ((hostName, serviceName):otherServers) = do
-      endEvent <- ircConnection hostName serviceName
-      unless (endEvent == ClosedConnection) $ do
-        liftIO . threadDelay $ 1000000 * reconnectDelay
-        ircSession' otherServers
+data ConnectionCommand = Send ByteString | Close deriving (Show)
+data ConnectionEvent = Received ByteString | Closed | Disconnected deriving (Show)
 
-ircConnection :: HostName -> ServiceName -> Producer IrcEvent (SafeT IO) IrcEvent
-ircConnection hostName serviceName = do
-  endEvent <-
-    handleIf
-      (\ex -> isDoesNotExistError ex && ioeGetLocation ex == "getAddrInfo")
-      (const . return $ FailedToConnect hostName serviceName) $
-    PTCP.connect hostName serviceName $
-    \(socket, socketAddr) -> do
-      yield $ Connected hostName serviceName
-      liftIO . threadDelay $ 5000000
-      return ClosedConnection
-  yield endEvent
-  return endEvent
+runConnection :: HostName -> ServiceName -> Int -> IO (Async (), Input ConnectionEvent, Output ConnectionCommand)
+runConnection hostName serviceName bytesPerRecv =
+  connectSock hostName serviceName >>= \(socket, _) ->
+    do
+      (inboxOutput, inboxInput, sealInbox) <- spawn' unbounded
+      (outboxOutput, outboxInput, sealOutbox) <- spawn' unbounded
+      connection <-
+        async $
+        do
+          en <- async $ run $ eventNotifier socket >-> toOutput inboxOutput
+          cd <- async $ run $ commandDispatcher socket <-< fromInput outboxInput
+          wait en -- Event notifier ends when socket disconnected or closed
+          atomically $ PC.send outboxOutput Close
+          wait cd -- Command dispatcher ends after dispatching Close command
+        `finally`
+        do
+          closeSock socket
+          atomically $ sealInbox >> sealOutbox
+      return (connection, inboxInput, outboxOutput)
+    `onException`
+    closeSock socket
+
+  where
+    run = runEffect
+
+    eventNotifier :: Socket -> Producer ConnectionEvent IO ()
+    eventNotifier socket =
+      let
+        yieldRest = do
+          maybeBytes <- TCP.recv socket bytesPerRecv
+          case maybeBytes of
+            Just bs -> do
+              yield $ Received bs
+              yieldRest
+            Nothing -> yield Disconnected
+      in yieldRest
+      `catchBadFileDescriptor`
+      \_ -> yield Closed
+
+      where
+        catchBadFileDescriptor = catchIf $ \ex ->
+          ioe_description ex == "Bad file descriptor"
+
+    commandDispatcher :: Socket -> Consumer ConnectionCommand IO ()
+    commandDispatcher socket =
+      let
+        awaitRest = do
+          command <- await
+          case command of
+            Send bs -> do
+              TCP.send socket bs
+              awaitRest
+            Close -> closeSock socket
+      in awaitRest

@@ -9,6 +9,10 @@ let
     reflex-platform.ghc.override {
       overrides = self: super:
         {
+          mkDerivation = args: super.mkDerivation (args // {
+            enableLibraryProfiling = true;
+            enableExecutableProfiling = true;
+          });
           runCabal2Nix = import ./runCabal2Nix.nix { compilerName = self.ghc.name; inherit pkgs; };
         };
     };
