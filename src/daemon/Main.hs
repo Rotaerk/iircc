@@ -20,9 +20,9 @@ main :: IO ()
 main = do
   connection <- Conn.open "localhost" "6667" 4096
   runEffect $ do
-    let yieldToConnection = (Conn.to connection <-<) . yield
-    yieldToConnection $ Conn.Send "NICK rotaerk\r\n"
-    yieldToConnection $ Conn.Send "USER rotaerk 0 * :Matt\r\n"
+    Conn.to connection <-< do
+      yield $ Conn.Send "NICK rotaerk\r\n"
+      yield $ Conn.Send "USER rotaerk 0 * :Matt\r\n"
     for (Conn.from connection) $ liftIO . print
   wait $ Conn.task connection
 
