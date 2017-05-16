@@ -2,12 +2,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Connection (
+module TCP (
   RecvChunkSize,
   Command (..),
   Event (..),
   Connection (..),
-  open 
+  TCP.connect
 ) where
 
 import Control.Concurrent.Async
@@ -22,7 +22,7 @@ import Pipes
 import Pipes.Concurrent as PC
 import qualified Pipes.Safe
 
-import Network.Simple.TCP as TCP
+import Network.Simple.TCP as T
 
 type RecvChunkSize = Int
 
@@ -31,13 +31,13 @@ data Event = Received ByteString | Closed | Disconnected deriving (Show)
 
 data Connection m =
   Connection {
-    task :: Async (),
-    from :: Producer Event m (),
-    to :: Consumer Command m ()
+    connectionTask :: Async (),
+    fromConnection :: Producer Event m (),
+    toConnection :: Consumer Command m ()
   }
 
-open :: MonadIO m => HostName -> ServiceName -> RecvChunkSize -> IO (Connection m)
-open hostName serviceName bytesPerRecv =
+connect :: MonadIO m => HostName -> ServiceName -> RecvChunkSize -> IO (Connection m)
+connect hostName serviceName bytesPerRecv =
   connectSock hostName serviceName >>= \(socket, _) ->
     do
       (inboxOutput, inboxInput, sealInbox) <- spawn' unbounded
@@ -65,7 +65,7 @@ open hostName serviceName bytesPerRecv =
     eventNotifier socket =
       let
         yieldRest = do
-          maybeBytes <- TCP.recv socket bytesPerRecv
+          maybeBytes <- T.recv socket bytesPerRecv
           case maybeBytes of
             Just bs -> do
               yield $ Received bs
@@ -86,7 +86,7 @@ open hostName serviceName bytesPerRecv =
           command <- await
           case command of
             Send bs -> do
-              TCP.send socket bs
+              T.send socket bs
               awaitRest
             Close -> closeSock socket
       in awaitRest
