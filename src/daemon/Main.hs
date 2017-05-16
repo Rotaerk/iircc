@@ -35,7 +35,7 @@ tcpToIrc :: MonadIO m => Pipe TCP.Event IRC.Event m ()
 tcpToIrc = processEvents parseMessage
   where
     parseMessage :: ByteString -> Result IRC.Message
-    parseMessage = ABS.parse . unTagged $ tpMessage (tpPrefix IRC.PrefixNickName IRC.PrefixServerName) IRC.Message
+    parseMessage = ABS.parse $ pMessage (tpPrefix IRC.PrefixNickName IRC.PrefixServerName) IRC.Message
 
     processEvents :: MonadIO m => (ByteString -> Result IRC.Message) -> Pipe TCP.Event IRC.Event m ()
     processEvents parseFirstMessage = await >>= \case

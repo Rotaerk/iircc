@@ -7,7 +7,6 @@ Description: An attoparsec parser for IRC messages.
 -}
 module Network.IRC.Parser (
   TaggedParser,
-  TMessage,
   TPrefix,
   Command,
   Param,
@@ -15,7 +14,7 @@ module Network.IRC.Parser (
   User,
   NickName,
   ServerName,
-  tpMessage,
+  pMessage,
   tpPrefix
 ) where
 
@@ -112,14 +111,12 @@ message    =  [ ":" prefix SPACE ] command [ params ] crlf
 
 -}
 
-data TMessage
-
-tpMessage
+pMessage
   :: TaggedParser TPrefix prefix
   -> (Maybe prefix -> Command -> [Param] -> message)
-  -> TaggedParser TMessage message
-tpMessage tpPrefix buildMessage =
-  Tagged . (<?> "Message") $
+  -> Parser message
+pMessage tpPrefix buildMessage =
+  (<?> "Message") $
   buildMessage <$>
   optional (pColon *> unTagged tpPrefix) <*>
   pCommand <*>
