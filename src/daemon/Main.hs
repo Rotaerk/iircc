@@ -39,20 +39,21 @@ tcpToIrc = processEvents parseMessage
 
     processEvents :: MonadIO m => (ByteString -> Result IRC.Message) -> Pipe TCP.Event IRC.Event m ()
     processEvents parseFirstMessage = await >>= \case
-      TCP.Received chunk -> parseMessagesFromChunkWith parseFirstMessage chunk >>= mapM_ processEvents
+      TCP.Received chunk ->
+        parseMessagesFromChunkWith parseFirstMessage chunk >>= \case
+          Right parseMessageCont -> processEvents parseMessageCont
+          Left failureMessage -> liftIO . putStrLn $ failureMessage
       TCP.Closed -> yield IRC.SessionEnded
       TCP.Disconnected -> yield IRC.Disconnected
 
-    parseMessagesFromChunkWith :: MonadIO m => (ByteString -> Result IRC.Message) -> ByteString -> Pipe TCP.Event IRC.Event m (Maybe (ByteString -> Result IRC.Message))
+    parseMessagesFromChunkWith :: Monad m => (ByteString -> Result IRC.Message) -> ByteString -> Pipe TCP.Event IRC.Event m (Either String (ByteString -> Result IRC.Message))
     parseMessagesFromChunkWith parseFirstMessage chunk =
       case parseFirstMessage chunk of
-        Fail restOfInput context errorMessage -> do
-          liftIO . putStrLn $ "IRC parse failure: " ++ errorMessage ++ "\nContext: " ++ show context ++ "\nRest of Input:\n" ++ show restOfInput
-          return Nothing
-        Partial parseMessageCont -> return $ Just parseMessageCont
+        Fail restOfInput context errorMessage -> return . Left $ "IRC parse failure: " ++ errorMessage ++ "\nContext: " ++ show context ++ "\nRest of Input:\n" ++ show restOfInput
+        Partial parseMessageCont -> return . Right $ parseMessageCont
         Done restOfChunk message -> do
           yield $ IRC.Received message
           parseMessagesFromChunk restOfChunk 
 
-    parseMessagesFromChunk :: MonadIO m => ByteString -> Pipe TCP.Event IRC.Event m (Maybe (ByteString -> Result IRC.Message))
+    parseMessagesFromChunk :: Monad m => ByteString -> Pipe TCP.Event IRC.Event m (Either String (ByteString -> Result IRC.Message))
     parseMessagesFromChunk = parseMessagesFromChunkWith parseMessage
