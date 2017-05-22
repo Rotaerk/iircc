@@ -5,18 +5,8 @@
 
 module Main where
 
-import Control.Applicative
 import Control.Concurrent.Async
-import Control.Exception
-import Control.Monad.IO.Class
-import Data.Attoparsec.ByteString as ABS
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import Data.Tagged
-import Data.Text
 import Pipes
-import qualified Pipes.Prelude as PP
-import qualified Pipes.Attoparsec as PA
 
 import Irc.Commands
 import Irc.Message
