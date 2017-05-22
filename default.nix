@@ -2,18 +2,24 @@
 
 let
   project = "iircc";
-  inherit (import ./refs.nix { inherit refsWithLocalSource; }) sourceImports;
+  inherit (import ./refs.nix { inherit refsWithLocalSource; }) sourceImports relSourceOverrides c2nResultsWith;
   reflex-platform = sourceImports.reflex-platform {};
   pkgs = reflex-platform.nixpkgs;
   haskellPackages =
     reflex-platform.ghc.override {
       overrides = self: super:
-        {
+        let
+          c2n = c2nResultsWith self.runCabal2Nix;
+        in {
           mkDerivation = args: super.mkDerivation (args // {
             enableLibraryProfiling = true;
             enableExecutableProfiling = true;
           });
+
           runCabal2Nix = import ./runCabal2Nix.nix { compilerName = self.ghc.name; inherit pkgs; };
+
+          irc-core = self.callPackage (c2n.relSourceImports.irc-core "irc-core" "lib") {};
+          # irc-core = relSourceOverrides.irc-core "lib" "2.2.1" super.irc-core;
         };
     };
 in

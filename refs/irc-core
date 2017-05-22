@@ -1,0 +1,7 @@
+{
+  scheme = "github";
+  owner = "glguy";
+  repo = "irc-core";
+  rev = "9b4149bdb4f7cd6e913e09b2e255fa8c8c55d297";
+  sha256 = "05pyvks00gcaj0dy2y0h05kkgxzbig6axzc1zmqgrqzq55j0d1br";
+}

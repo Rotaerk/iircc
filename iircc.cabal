@@ -15,7 +15,7 @@ cabal-version: >=1.10
 
 library
   hs-source-dirs: src/common, src/irc
-  exposed-modules: Network.IIRCC, Network.IRC.Parser
+  exposed-modules: Network.IIRCC, Network.IRC.Parser, Pipes.Partial
   build-depends: 
     attoparsec,
     bytestring,
@@ -36,6 +36,7 @@ executable daemon
     bytestring,
     cereal,
     exceptions,
+    irc-core,
     network-simple,
     pipes,
     pipes-attoparsec,
@@ -43,6 +44,7 @@ executable daemon
     pipes-network,
     pipes-safe,
     pipes-zeromq4,
+    text,
     these,
     word8,
     zeromq4-haskell,
