@@ -2,14 +2,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 
-module TCP (
+module IIRCC.TCP (
   RecvChunkSize,
   Command (..),
   Event (..),
   Connection (..),
-  TCP.connect,
-  TCP.send,
-  TCP.close,
+  IIRCC.TCP.connect,
+  IIRCC.TCP.send,
+  IIRCC.TCP.close,
   eventPipe,
 
   HostName,

@@ -12,7 +12,7 @@ import Irc.Commands
 import Irc.Message
 import Irc.RawIrcMsg
 
-import qualified IRC
+import qualified IIRCC.IRC as IRC
 
 -- Run a test IRC daemon with:  ngircd -f ~/ngircd.conf -n
 

@@ -1,12 +1,12 @@
 {-# LANGUAGE Rank2Types #-}
 
-module IRC (
+module IIRCC.IRC (
   Command (..),
   Event (..),
   Connection (..),
-  IRC.connect,
-  IRC.send,
-  IRC.close,
+  IIRCC.IRC.connect,
+  IIRCC.IRC.send,
+  IIRCC.IRC.close,
   eventPipe,
 
   HostName,
@@ -32,8 +32,8 @@ import Pipes
 import qualified Pipes.Prelude as PP
 import Pipes.Partial
 
-import qualified TCP
-import TCP (ServiceName, HostName)
+import IIRCC.TCP (ServiceName, HostName)
+import qualified IIRCC.TCP as TCP
 
 data Command = Send RawIrcMsg | Close deriving (Show)
 data Event = Received IrcMsg | InvalidMsg Text | Closed | Disconnected deriving (Show)
@@ -64,16 +64,16 @@ close :: Monad m => Producer Command m ()
 close = yield Close
 
 tcpEventsToIrcEvents :: Monad m => Pipe TCP.Event Event m ()
-tcpEventsToIrcEvents = TCP.eventPipe chunksToMessages IRC.Closed IRC.Disconnected
+tcpEventsToIrcEvents = TCP.eventPipe chunksToMessages Closed Disconnected
 
 ircCommandsToTcpCommands :: Monad m => Pipe Command TCP.Command m ()
 ircCommandsToTcpCommands = commandPipe (TCP.Send . renderRawIrcMsg) TCP.Close
 
-chunksToMessages :: Monad m => Pipe ByteString IRC.Event m ()
+chunksToMessages :: Monad m => Pipe ByteString Event m ()
 chunksToMessages = chunksToLines >-> PP.map (textLineToEvent . asUtf8)
 
-textLineToEvent :: Text -> IRC.Event
-textLineToEvent line = maybe (IRC.InvalidMsg line) (IRC.Received . cookIrcMsg) (parseRawIrcMsg line)
+textLineToEvent :: Text -> Event
+textLineToEvent line = maybe (InvalidMsg line) (Received . cookIrcMsg) (parseRawIrcMsg line)
 
 chunksToLines :: Monad m => Pipe ByteString ByteString m ()
 chunksToLines = chunksToLinesWith parseLine
