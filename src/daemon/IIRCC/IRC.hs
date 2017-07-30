@@ -1,8 +1,7 @@
 module IIRCC.IRC (
-  connect,
-  Connection (..),
-  send,
-  close,
+  Message,
+  receiver,
+  sender
 ) where
 
 import IIRCC.IRC.Connection

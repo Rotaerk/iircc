@@ -15,10 +15,24 @@ import Irc.Commands
 import Irc.Message
 import Irc.RawIrcMsg
 
+import qualified Network.Simple.TCP as TCP
 import qualified IIRCC.IRC as IRC
 
 -- Run a test IRC daemon with:  ngircd -f ~/ngircd.conf -n
 
+main :: IO ()
+main =
+  TCP.connectSock "localhost" "6667" >>= \(socket, _) ->
+    runEffect $ do
+      IRC.sender socket <-< do
+        yield $ ircNick "rotaerk"
+        yield $ ircUser "rotaerk" False False "Matt"
+      result <- for (IRC.receiver 4096 socket) $ liftIO . print
+      case result of
+        Just ioError -> liftIO . print $ "Error: " ++ show ioError
+        Nothing -> liftIO . print $ "Connection terminated."
+
+{-
 main :: IO ()
 main =
   try (IRC.connect "localhost" "6667") >>= \case
@@ -32,3 +46,4 @@ main =
       cleanExit <- wait $ IRC.connectionTask c
       putStrLn $ "Connection terminated " ++ (if cleanExit then "cleanly." else "by remote host.")
     Left e -> putStrLn $ "Failed to open the connection.  The error was: " ++ ioe_description e
+-}

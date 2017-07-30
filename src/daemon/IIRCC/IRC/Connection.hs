@@ -2,77 +2,39 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module IIRCC.IRC.Connection (
-  Command (..),
-  Event (..),
-  Connection (..),
-  connect,
-  send,
-  close,
-  eventPipe,
-
-  HostName,
-  Port
+  Message (..),
+  receiver,
+  sender
 ) where
 
 import Control.Applicative
-import Control.Concurrent.Async
 import Control.Exception
-import Control.Monad
-import Control.Monad.IO.Class
 import Data.Attoparsec.ByteString as ABS
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.List.NonEmpty
 import Data.Text
-import Data.These
 
 import Irc.Message
 import Irc.RawIrcMsg
 
 import Pipes
+import Pipes.Core
 import qualified Pipes.Prelude as PP
-import Pipes.Branching
 
-import IIRCC.TCP (ServiceName, HostName)
+import IIRCC.TCP (Socket)
 import qualified IIRCC.TCP as TCP
 
-data Command = Send RawIrcMsg | Close deriving (Show)
-data Event = Received IrcMsg | InvalidMsg Text deriving (Show)
+data Message = ValidMessage IrcMsg | InvalidMessage Text deriving (Show)
 
-data Connection m =
-  Connection {
-    connectionTask :: Async Bool, -- Result indicates whether the connection terminated cleanly.
-    fromConnection :: Producer Event m (),
-    toConnection :: Consumer Command m ()
-  }
+receiver :: Int -> Socket -> Producer Message IO (Maybe IOError)
+receiver bytesPerReceive socket = TCP.receiver socket +>> (receivedChunksToMessages bytesPerReceive *> return Nothing)
 
-type Port = ServiceName
+sender :: Socket -> Consumer RawIrcMsg IO ()
+sender socket = PP.map renderRawIrcMsg >-> TCP.sender socket
 
-connect :: MonadIO m => HostName -> Port -> IO (Connection m)
-connect hostName port = do
-  tcpConnection <- TCP.connect hostName port 4096
-  return $
-    Connection {
-      connectionTask = TCP.connectionTask tcpConnection,
-      fromConnection = TCP.fromConnection tcpConnection >-> chunksToLines >-> PP.map (textLineToEvent . asUtf8),
-      toConnection = ircCommandsToTcpCommands >-> TCP.toConnection tcpConnection
-    }
-
-send :: Monad m => RawIrcMsg -> Producer Command m ()
-send = yield . Send
-
-close :: Monad m => Producer Command m ()
-close = yield Close
-
-ircCommandsToTcpCommands :: Monad m => Pipe Command TCP.Command m ()
-ircCommandsToTcpCommands = commandPipe (TCP.Send . renderRawIrcMsg) TCP.Close
-
-textLineToEvent :: Text -> Event
-textLineToEvent line = maybe (InvalidMsg line) (Received . cookIrcMsg) (parseRawIrcMsg line)
-
-chunksToLines :: Monad m => Pipe ByteString ByteString m ()
-chunksToLines = chunksToLinesWith parseLine
-  where chunksToLinesWith parseNextLine = await >>= linesOfChunkWith parseNextLine >>= chunksToLinesWith
+receivedChunksToMessages :: Monad m => Int -> Proxy Int ByteString () Message m ()
+receivedChunksToMessages bytesPerChunk = receivedChunksToLinesWith parseLine >-> PP.map (textLineToMessage . asUtf8)
+  where receivedChunksToLinesWith parseNextLine = request bytesPerChunk >>= linesOfChunkWith parseNextLine >>= receivedChunksToLinesWith
 
 linesOfChunkWith :: Monad m => (ByteString -> Result ByteString) -> ByteString -> Producer' ByteString m (ByteString -> Result ByteString)
 linesOfChunkWith parseFirstLine chunk =
@@ -89,28 +51,5 @@ parseLine = parse pLine
 
     [pCR, pLF] = ABS.word8 <$> BS.unpack "\CR\LF"
 
-commandPipe
-  :: Monad m
-  => (RawIrcMsg -> o) -- Map the IRC messages from Send commands to o-values
-  -> o -- o-value to yield for Close commands
-  -> Pipe Command o m ()
-commandPipe fromSendMsg close =
-  remap ((fromSendMsg <$>) . matchSendCommand) $
-  PP.map (\Close -> close)
-
-  where
-    matchSendCommand (Send rawIrcMsg) = Just rawIrcMsg
-    matchSendCommand _ = Nothing
-
-eventPipe
-  :: Monad m
-  => (IrcMsg -> o) -- Map the IRC messages from Received events to o-values
-  -> (Text -> o) -- Map the text from InvalidMsg events to o-values
-  -> Pipe Event o m ()
-eventPipe fromReceivedMsg fromInvalidMsgText =
-  remap ((fromReceivedMsg <$>) . matchReceivedEvent) $
-  PP.map (\(InvalidMsg text) -> fromInvalidMsgText text)
-
-  where
-    matchReceivedEvent (Received msg) = Just msg
-    matchReceivedEvent _ = Nothing
+textLineToMessage :: Text -> Message
+textLineToMessage line = maybe (InvalidMessage line) (ValidMessage . cookIrcMsg) (parseRawIrcMsg line)
