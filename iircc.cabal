@@ -15,12 +15,14 @@ cabal-version: >=1.10
 
 library
   hs-source-dirs: src/common, src/irc
-  exposed-modules: Network.IIRCC, Network.IRC.Parser, Pipes.Branching
+  exposed-modules: Network.IIRCC, Network.IRC.Parser, Pipes.Branching, Pipes.Exhaustion
   build-depends: 
     attoparsec,
     bytestring,
     cereal,
     composition,
+    either,
+    mtl,
     pipes,
     pipes-extras,
     tagged,
@@ -31,13 +33,17 @@ library
 executable daemon
   hs-source-dirs: src/daemon
   main-is: Main.hs
+  ghc-options: -threaded
   build-depends:
     async,
     attoparsec,
     bytestring,
     cereal,
+    contravariant,
+    either,
     exceptions,
     irc-core,
+    mtl,
     network-simple,
     pipes,
     pipes-attoparsec,

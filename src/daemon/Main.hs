@@ -7,43 +7,94 @@ module Main where
 
 import Control.Concurrent.Async
 import Control.Exception
+import Data.Functor.Contravariant
+import Data.Text
 import GHC.IO.Exception
 
 import Pipes
+import Pipes.Concurrent as PC
+import Pipes.Exhaustion
+import qualified Pipes.Prelude as PP
 
 import Irc.Commands
 import Irc.Message
 import Irc.RawIrcMsg
 
-import qualified Network.Simple.TCP as TCP
-import qualified IIRCC.IRC as IRC
+import qualified IIRCC.IRC.Session as IRCSession
 
 -- Run a test IRC daemon with:  ngircd -f ~/ngircd.conf -n
 
 main :: IO ()
-main =
-  TCP.connectSock "localhost" "6667" >>= \(socket, _) ->
-    runEffect $ do
-      IRC.sender socket <-< do
-        yield $ ircNick "rotaerk"
-        yield $ ircUser "rotaerk" False False "Matt"
-      result <- for (IRC.receiver 4096 socket) $ liftIO . print
-      case result of
-        Just ioError -> liftIO . print $ "Error: " ++ show ioError
-        Nothing -> liftIO . print $ "Connection terminated."
+main = do
+  (messageSink, messageSource, sealMailbox) <- spawn' unbounded
+  session <- IRCSession.start "localhost" "6667" (contramap SessionNotification messageSink)
+  inputReceiver <- async $ runEffect $ PP.stdinLn >-> toOutput (contramap UserInput messageSink)
+  runEffect $ inexhaustible (fromInput messageSource) >-> runEffect (clientPipe >-> PP.stdoutLn) >-> toOutput (IRCSession.commandSink session)
+  atomically sealMailbox
 
-{-
-main :: IO ()
-main =
-  try (IRC.connect "localhost" "6667") >>= \case
-    Right c -> do
-      runEffect $ do
-        IRC.toConnection c <-< do
-          IRC.send $ ircNick "rotaerk"
-          IRC.send $ ircUser "rotaerk" False False "Matt"
-        for (IRC.fromConnection c) $ liftIO . print
-        IRC.toConnection c <-< IRC.close
-      cleanExit <- wait $ IRC.connectionTask c
-      putStrLn $ "Connection terminated " ++ (if cleanExit then "cleanly." else "by remote host.")
-    Left e -> putStrLn $ "Failed to open the connection.  The error was: " ++ ioe_description e
--}
+data ClientMessage =
+  SessionNotification IRCSession.Notification |
+  UserInput String
+  deriving (Show)
+  
+clientPipe :: Producer String (Pipe ClientMessage IRCSession.Command IO) ()
+clientPipe = awaitClientMessage >>= \case
+  SessionNotification n -> case n of
+    IRCSession.Connecting h p -> do
+      yieldClientOutput $ "Connecting to '" ++ h ++ "' port " ++ p ++ "..."
+      clientPipe
+    IRCSession.Connected -> do
+      yieldClientOutput $ "Connected."
+      yieldSessionCommand $ IRCSession.SendMessage $ ircNick "rotaerk"
+      yieldSessionCommand $ IRCSession.SendMessage $ ircUser "rotaerk" False False "Matt"
+      clientPipe
+    IRCSession.FailedToConnect ioe -> do
+      yieldClientOutput $ "Failed to connect: " ++ ioe_description ioe
+      clientPipe
+    IRCSession.ReceivedMessage (IRCSession.ValidIrcMessage m) -> do
+      yieldClientOutput $ "Received message: " ++ show m
+      case m of
+        Ping servers -> yieldSessionCommand $ IRCSession.SendMessage $ ircPong servers
+        _ -> return ()
+      clientPipe
+    IRCSession.ReceivedMessage (IRCSession.InvalidIrcMessage t) -> do
+      yieldClientOutput $ "Received invalid message: " ++ show t
+      clientPipe
+    IRCSession.SentMessage m -> do
+      yieldClientOutput $ "Sent message: " ++ show m
+      clientPipe
+    IRCSession.UnableTo command reason -> do
+      yieldClientOutput $ "Failed to " ++ show command ++ ": " ++ show reason
+      clientPipe
+    IRCSession.Disconnected -> do
+      yieldClientOutput "Disconnected."
+      clientPipe
+    IRCSession.LostConnection Nothing -> do
+      yieldClientOutput "Lost connection with no error."
+      clientPipe
+    IRCSession.LostConnection (Just ioe) -> do
+      yieldClientOutput $ "Lost connection: " ++ ioe_description ioe
+      clientPipe
+    IRCSession.Ended -> yieldClientOutput "Exiting..."
+  UserInput s -> case s of
+    "/connect" -> do
+      yieldSessionCommand IRCSession.Connect
+      clientPipe
+    "/quit" -> do
+      yieldSessionCommand $ IRCSession.SendMessage $ ircQuit "Quitting"
+      clientPipe
+    "/close" -> do
+      yieldSessionCommand IRCSession.Close
+      clientPipe
+    "/disconnect" -> do
+      yieldSessionCommand IRCSession.Disconnect
+      clientPipe
+    "" -> clientPipe
+    i -> do
+      liftIO $ putStrLn $ "Unexpected Input: " ++ i
+      clientPipe
+
+  where
+    awaitClientMessage = lift await
+    yieldClientOutput = yield
+    yieldSessionCommand = lift . yield
