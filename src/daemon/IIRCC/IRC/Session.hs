@@ -3,7 +3,7 @@
 
 module IIRCC.IRC.Session (
   Session (..),
-  Notification (..),
+  EventReport (..),
   Command (..),
   IRCPipes.IrcMessage (..),
   start
@@ -40,7 +40,7 @@ data Session =
     commandSink :: Output Command
   }
 
-data Notification =
+data EventReport =
   Connecting HostName ServiceName |
   Connected |
   FailedToConnect IOError |
@@ -65,7 +65,7 @@ data Message =
   MessageReceiverEnded (Maybe IOError)
   deriving (Show)
 
-start :: HostName -> ServiceName -> Output Notification -> IO Session
+start :: HostName -> ServiceName -> Output EventReport -> IO Session
 start hostName serviceName eventSink = do
   (messageSink, messageSource, sealMailbox) <- spawn' unbounded
   sessionTask <- async $ do
@@ -75,7 +75,7 @@ start hostName serviceName eventSink = do
   return $ Session sessionTask (contramap Command messageSink)
 
   where
-    sessionPipe :: Consumer Message IO () -> Pipe Message Notification IO ()
+    sessionPipe :: Consumer Message IO () -> Pipe Message EventReport IO ()
     sessionPipe toMailbox = fix $ \sessionPipe' -> await >>= \case
       Command Connect -> do
         yield $ Connecting hostName serviceName
@@ -118,23 +118,23 @@ start hostName serviceName eventSink = do
       MessageReceiverEnded _ -> sessionPipe' -- End of message receiver from last connection.
 
     -- Returns event that prompted termination.
-    connectedSessionPipe :: Producer RawIrcMsg (Pipe Message Notification IO) Message
+    connectedSessionPipe :: Producer RawIrcMsg (Pipe Message EventReport IO) Message
     connectedSessionPipe = awaitMessage >>= \case
       IrcMessage m -> do
-        yieldNotification $ ReceivedMessage m
+        yieldEventReport $ ReceivedMessage m
         connectedSessionPipe
       Command (SendMessage m) -> do
         yieldRawIrcMsg m
-        yieldNotification $ SentMessage m
+        yieldEventReport $ SentMessage m
         connectedSessionPipe
       c@(Command Disconnect) -> return c
       c@(Command Close) -> return c
       c@(MessageReceiverEnded _) -> return c 
       Command Connect -> do
-        yieldNotification $ UnableTo Connect "Already connected."
+        yieldEventReport $ UnableTo Connect "Already connected."
         connectedSessionPipe
 
       where
         awaitMessage = lift await
         yieldRawIrcMsg = yield
-        yieldNotification = lift . yield
+        yieldEventReport = lift . yield

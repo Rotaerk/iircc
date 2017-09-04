@@ -27,19 +27,19 @@ import qualified IIRCC.IRC.Session as IRCSession
 main :: IO ()
 main = do
   (messageSink, messageSource, sealMailbox) <- spawn' unbounded
-  session <- IRCSession.start "localhost" "6667" (contramap SessionNotification messageSink)
+  session <- IRCSession.start "localhost" "6667" (contramap SessionEventReport messageSink)
   inputReceiver <- async $ runEffect $ PP.stdinLn >-> toOutput (contramap UserInput messageSink)
   runEffect $ inexhaustible (fromInput messageSource) >-> runEffect (clientPipe >-> PP.stdoutLn) >-> toOutput (IRCSession.commandSink session)
   atomically sealMailbox
 
 data ClientMessage =
-  SessionNotification IRCSession.Notification |
+  SessionEventReport IRCSession.EventReport |
   UserInput String
   deriving (Show)
   
 clientPipe :: Producer String (Pipe ClientMessage IRCSession.Command IO) ()
 clientPipe = awaitClientMessage >>= \case
-  SessionNotification n -> case n of
+  SessionEventReport n -> case n of
     IRCSession.Connecting h p -> do
       yieldClientOutput $ "Connecting to '" ++ h ++ "' port " ++ p ++ "..."
       clientPipe
