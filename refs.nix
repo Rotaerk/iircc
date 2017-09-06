@@ -67,36 +67,4 @@ in rec {
       sources;
 
   sourceImports = mapAttrs (refName: importSubdir: importSubdir "") relSourceImports;
-
-  c2nResultsWith = runCabal2Nix: rec {
-    relSourceImports =
-      mapAttrs
-        (refName: srcPath:
-          (resultNamePrefix: subDir:
-            import (runCabal2Nix.forLocalPath resultNamePrefix (srcPath + "/" + subDir))
-          )
-        )
-        sources;
-
-    sourceImports = mapAttrs (refName: importSubdir: importSubdir refName "") relSourceImports;
-
-    hackageImports =
-      let
-        hackageRefs =
-          compose
-            (mapAttrs
-              (refName: ref:
-                {
-                  packageId = "${ref.name}-${ref.version}";
-                  inherit (ref) sha256;
-                }
-              )
-            )
-            (filterAttrs (refName: ref: ref.scheme == "hackage"))
-            refs;
-        nixsPath =
-          runCabal2Nix.forHackagePackages "hackageRefs" (builtins.attrValues hackageRefs);
-      in
-        mapAttrs (refName: ref: import "${nixsPath}/${ref.packageId}") hackageRefs;
-  };
 }

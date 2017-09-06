@@ -2,30 +2,24 @@
 
 let
   project = "iircc";
-  inherit (import ./refs.nix { inherit refsWithLocalSource; }) sourceImports c2nResultsWith;
+  inherit (import ./refs.nix { inherit refsWithLocalSource; }) sources sourceImports;
   reflex-platform = sourceImports.reflex-platform {};
   pkgs = reflex-platform.nixpkgs;
   haskellPackages =
     reflex-platform.ghc.override {
-      overrides = self: super:
-        let
-          c2n = c2nResultsWith self.runCabal2Nix;
-        in {
-          mkDerivation = args: super.mkDerivation (args // {
-            # enableLibraryProfiling = true;
-            # enableExecutableProfiling = true;
-          });
+      overrides = self: super: {
+        mkDerivation = args: super.mkDerivation (args // {
+          # enableLibraryProfiling = true;
+          # enableExecutableProfiling = true;
+        });
 
-          runCabal2Nix = self.callPackage (import ./runCabal2Nix.nix) { inherit pkgs; };
-
-          cborg = self.callPackage (c2n.relSourceImports.cborg "cborg" "cborg") {};
-
-          serialise = self.callPackage (c2n.relSourceImports.cborg "serialise" "serialise") {};
-        };
+        cborg = self.callCabal2nix "cborg" (sources.cborg + /cborg) {};
+        serialise = self.callCabal2nix "serialise" (sources.cborg + /serialise) {};
+      };
     };
 in
   pkgs.haskell.lib.overrideCabal
-    (haskellPackages.callPackage (haskellPackages.runCabal2Nix.forLocalPath "${project}" ./.) {})
+    (haskellPackages.callCabal2nix "${project}" ./. {})
     (drv: {
       src = builtins.filterSource (path: type: baseNameOf path != ".git") drv.src;
     })
