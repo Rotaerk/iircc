@@ -1,5 +1,5 @@
 {
-  compilerName,
+  ghc,
   cabal2nix,
   pkgs ? import <nixpkgs> {},
   system ? pkgs.stdenv.system
@@ -14,7 +14,7 @@
         buildInputs = [ cabal2nix ];
       } ''
         mkdir -p "$out"
-        cabal2nix --compiler=${compilerName} --system=${system} file://"${localPath}" >"$out/default.nix"
+        cabal2nix --compiler=${ghc.name} --system=${system} file://"${localPath}" >"$out/default.nix"
       '';
 
   forHackagePackages =
@@ -42,7 +42,7 @@
             packageId=''${fields[0]}
             sha256=''${fields[1]}
             mkdir -p "$out/$packageId"
-            HOME="$out/.home" cabal2nix --compiler=${compilerName} --system=${system} --hackage-db="$out/.hackageCache/hackage/00-index.tar" --sha256="$sha256" "cabal://$packageId" >"$out/$packageId/default.nix"
+            HOME="$out/.home" cabal2nix --compiler=${ghc.name} --system=${system} --hackage-db="$out/.hackageCache/hackage/00-index.tar" --sha256="$sha256" "cabal://$packageId" >"$out/$packageId/default.nix"
           done
           rm -rf "$out/.home" "$out/.hackageCache"
         '';

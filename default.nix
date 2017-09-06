@@ -12,11 +12,11 @@ let
           c2n = c2nResultsWith self.runCabal2Nix;
         in {
           mkDerivation = args: super.mkDerivation (args // {
-            enableLibraryProfiling = true;
+            # enableLibraryProfiling = true;
             # enableExecutableProfiling = true;
           });
 
-          runCabal2Nix = import ./runCabal2Nix.nix { compilerName = super.ghc.name; cabal2nix = super.cabal2nix; inherit pkgs; };
+          runCabal2Nix = self.callPackage (import ./runCabal2Nix.nix) { inherit pkgs; };
         };
     };
 in
