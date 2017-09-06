@@ -1,34 +1,11 @@
 {
   compilerName,
+  cabal2nix,
   pkgs ? import <nixpkgs> {},
   system ? pkgs.stdenv.system
 }:
 
-let
-  haskellPackages =
-    pkgs.haskell.packages.ghc801.override {
-      overrides = self: super: {
-        cabal2nix =
-          pkgs.haskell.lib.overrideCabal
-            (self.callPackage (import ./cabal2nix.cabal.nix) {})
-            (drv: {
-              isLibrary = false;
-              enableSharedExecutables = false;
-              executableToolDepends = [ pkgs.makeWrapper ];
-              postInstall = ''
-                exe=$out/libexec/${drv.pname}-${drv.version}/${drv.pname}
-                install -D $out/bin/${drv.pname} $exe
-                rm -rf $out/{bin,lib,share}
-                makeWrapper $exe $out/bin/${drv.pname} --prefix PATH ":" "${pkgs.nix-prefetch-scripts}/bin"
-                mkdir -p $out/share/bash-completion/completions
-                $exe --bash-completion-script $exe >$out/share/bash-completion/completions/${drv.pname}
-              '';
-            });
-      };
-    };
-  cabal2nix = haskellPackages.cabal2nix;
-in {
-
+{
   forLocalPath =
     resultNamePrefix:
     localPath:

@@ -90,7 +90,7 @@ start hostName serviceName eventSink = do
                 msgReceiver <- liftIO $ async $ do
                   runEffect $
                     toMailbox <-< (
-                      PS.try (IRCPipes.receiver 4096 socket) >-> PP.map IrcMessage
+                      C.try (IRCPipes.receiver 4096 socket) >-> PP.map IrcMessage
                       >>= yield . MessageReceiverEnded . leftToMaybe
                     )
                 endReason <- runEffect $ connectedSessionPipe >-> IRCPipes.sender socket

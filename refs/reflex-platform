@@ -2,6 +2,6 @@
   scheme = "github";
   owner = "reflex-frp";
   repo = "reflex-platform";
-  rev = "824e979768798ae9089cffdf54548c34fe391648";
-  sha256 = "0wd3avk6ygbx782bd560k7ba3h9579nvb67rbb4qj984mdbp555g";
+  rev = "1670c5b899658babeda58329d3df6b943cf6aeca";
+  sha256 = "0ry3fcxiqr43c5fghsiqn0iarj4gfvk77jkc4na7j7r3k8vjdjh2";
 }
