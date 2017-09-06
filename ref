@@ -23,7 +23,6 @@ Dependent upon the specified reference file.  Omit to see more information.
 
     case "$refScheme" in
       github) githubRef "$@";;
-      hackage) hackageRef "$@";;
       *) error "The '$refFilePath' ref has an unrecognized scheme: $refScheme.";;
     esac
   elif [ -d "$refFilePath" ]; then
@@ -37,7 +36,7 @@ newRef() {
   usageText="New reference usage: $invokedPath '$refFilePath' new <scheme> [<scheme-specific args>]
 
 <scheme>
-The scheme of the new reference. Supported values: github, hackage.
+The scheme of the new reference. Supported values: github.
 
 <scheme-specific args>
 Dependent upon the specified scheme.  Omit to see more information.
@@ -55,7 +54,6 @@ Dependent upon the specified scheme.  Omit to see more information.
 
   case "$refScheme" in
     github) newGithubRef "$@";;
-    hackage) newHackageRef "$@";;
     *) errorUsage "The '$refScheme' scheme is not recognized.";;
   esac
 }
@@ -85,28 +83,6 @@ The name of a branch or a commit to reference.  If a branch (including HEAD) is 
   writeGithubRef "$owner" "$repo" "$rev"
 
   echo "Created a new GitHub reference at '$refFilePath', referring to $(buildGithubUrl "$owner" "$repo") commit $rev."
-}
-
-newHackageRef() {
-  usageText="New Hackage reference usage: $invokedPath '$refFilePath' new hackage <name> <version>
-
-<name>
-The name of the package to reference.
-
-<version>
-The version of the package to reference.
-"
-
-  [ "${1---help}" == "--help" ] && usage
-
-  (( $# == 2 )) || errorUsage 'Invalid arguments.'
-
-  local name="$1"
-  local version="$2"
-
-  writeHackageRef "$name" "$version"
-
-  echo "Created a new Hackage reference at '$refFilePath', referring to $name version $version."
 }
 
 githubRef() {
@@ -258,84 +234,6 @@ Indicates the branch to update to the latest revision of.
   esac
 }
 
-hackageRef() {
-  usageText="Hackage reference usage: $invokedPath '$refFilePath' <command> [<command-specific args>]
-
-<command>
-The command to run for the reference. Supported values: get, set.
-
-<command-specific args>
-Dependent upon the specified command.  Omit to see more information.
-"
-  [ "${1---help}" == "--help" ] && usage
-
-  local command="$1"
-  shift
-
-  case "$command" in
-    get) hackageRefGet "$@";;
-    set) hackageRefSet "$@";;
-    *) errorUsage "The '$command' command is not recognized.";;
-  esac
-}
-
-hackageRefGet() {
-  usageText="Hackage reference get usage: $invokedPath '$refFilePath' get <field>
-
-<field>
-The name of the field to get the value of. Supported values: scheme, name, version, sha256.
-"
-  [ "${1---help}" == "--help" ] && usage
-
-  local field="$1"
-
-  case "$field" in
-    scheme|name|version|sha256) echo "$(readRef "$field")";;
-    *) errorUsage "The '$field' field is not recognized.";;
-  esac
-}
-
-hackageRefSet() {
-  usageText="Hackage reference set usage: $invokedPath '$refFilePath' set <field> <value> ...
-
-<field>
-The name of a field to set the value of. Supported values: name, version.
-
-<value>
-The value to assign to the specified field.
-
-Note: Multiple field-value pairs may be listed to set more than one at a time.
-"
-  [ "${1---help}" == "--help" ] && usage
-
-  local curName="$(readRef name)"
-  local curVersion="$(readRef version)"
-  local name="$curName"
-  local version="$curVersion"
-
-  while (( "$#" )); do
-    (( $# >= 2 )) || errorUsage 'Invalid arguments.'
-
-    local field="$1"
-    local newValue="$2"
-
-    case "$field" in
-      name) local name="$newValue";;
-      version) local version="$newValue";;
-      *) errorUsage "The '$field' field is not recognized.";;
-    esac
-
-    shift 2
-  done
-
-  if [ "$name" != "$curName" ] || [ "$version" != "$curVersion" ]; then
-    writeHackageRef "$name" "$version"
-    echo "Updated '$refFilePath', to refer to $name version $version."
-  else
-    echo "Nothing changed."
-  fi
-}
-
 buildGithubUrl() {
   local owner="$1"
   local repo="$2"
@@ -400,28 +298,6 @@ writeGithubRef() {
 }
 EOF
 }
-
-writeHackageRef() {
-  local name="$1"
-  local version="$2"
-  local packageId="$name-$version"
-
-  local sha256="$(nix-prefetch-url mirror://hackage/"$packageId".tar.gz)"
-
-  [ -z $sha256 ] && error "Failed to obtain a hash for $packageId from Hackage."
-
-  ensureParentDirExists "$refFilePath"
-
-  cat <<EOF > $refFilePath
-{
-  scheme = "hackage";
-  name = "$name";
-  version = "$version";
-  sha256 = "$sha256";
-}
-EOF
-}
-
 
 usage () {
   echo "$usageText"
