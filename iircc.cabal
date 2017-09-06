@@ -27,7 +27,7 @@ library
     mtl,
     pipes,
     pipes-extras,
-    -- serialise,
+    serialise,
     tagged,
     text,
     zeromq4-haskell,

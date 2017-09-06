@@ -17,6 +17,10 @@ let
           });
 
           runCabal2Nix = self.callPackage (import ./runCabal2Nix.nix) { inherit pkgs; };
+
+          cborg = self.callPackage (c2n.relSourceImports.cborg "cborg" "cborg") {};
+
+          serialise = self.callPackage (c2n.relSourceImports.cborg "serialise" "serialise") {};
         };
     };
 in

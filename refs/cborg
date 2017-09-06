@@ -1,0 +1,7 @@
+{
+  scheme = "github";
+  owner = "well-typed";
+  repo = "cborg";
+  rev = "f1479bc52d03bbc31796e2df954cb9cd52a7c2ad";
+  sha256 = "199dk8k5qpkbn4h6s7cd6zksjlb82p1rjs803yc8lbvbj964hxhf";
+}
