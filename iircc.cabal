@@ -39,6 +39,7 @@ executable daemon
   main-is: Main.hs
   ghc-options: -threaded
   build-depends:
+    iircc,
     async,
     attoparsec,
     bytestring,
