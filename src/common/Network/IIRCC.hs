@@ -88,32 +88,6 @@ type SessionEvent = DSum SessionEventHeader Identity
 data ChannelEventTag a where
 -}
 
--- encodeSessionEventFilter :: SessionEventFilter -> Encoding
--- encodeSessionEventFilter = \case
---   (Connecting :=> m) -> encodeOptionalWithTagNum 0 m
---   (Connected :=> _) -> encodeEmptyWithTagNum 1
---   (FailedToConnect :=> m) -> encodeOptionalWithTagNum 2 m
---   (ReceivedUninterpretedMessage :=> m) -> encodeOptionalWithTagNum 3 m
---   (SessionUnableTo :=> m) -> encodeOptionalWithTagNum 4 m
---   (SentQuit :=> m) -> encodeOptionalWithTagNum 5 m
---   (EndedConnection :=> _) -> encodeEmptyWithTagNum 6
---   (LostConnection :=> m) -> encodeOptionalWithTagNum 7 m
---   (EndedSession :=> _) -> encodeEmptyWithTagNum 8
-
---   where
---     encodeWithTagNum n e = encodeTag n <> e <> encodeNull
---     encodeOptionalWithTagNum n = encodeWithTagNum n . maybe mempty encode
---     encodeEmptyWithTagNum n = encodeWithTagNum n mempty
-
-testFilter :: ClientEventFilter (HostName, PortNumber)
-testFilter = FromSession $ Just $ ("someSession", Just Connecting)
-
-testFilter2 :: ClientEventFilter a
-testFilter2 = FromSession $ Just $ ("someSession", Nothing)
-
-testHeader :: ClientEventHeader (HostName, PortNumber)
-testHeader = FromSession $ Identity $ ("someSession", Identity Connecting)
-
 -- The encoding of a filter needs to be a prefix of a valid header encoding.
 encodeClientEventFilter :: ClientEventFilter a -> Encoding
 encodeClientEventFilter = \case
@@ -148,20 +122,6 @@ encodeClientEvent = \case
   where
     mapFst f (a, b) = (f a, b)
 
-decodeClientEvent :: Decoder s (Decoder s ClientEvent)
-decodeClientEvent = decodeTag >>= \case
-  0 -> decodeNull >> (return $ (SessionStarted ==>) <$> decode)
-  1 -> do
-    sessionName <- decodeString <* decodeNull
-    decodeSessionEvent <&.&> \(sessionEventHeader :=> v) -> FromSession (Identity (sessionName, Identity sessionEventHeader)) :=> v
-  2 -> decodeNull >> (return $ (ClientUnableTo ==>) <$> decode)
-  3 -> decodeNull >> (return $ (ClientEnding ==>) <$> decode)
-  _ -> undefined
-
-  where
-    (<$.$>) = (<$>) . (<$>)
-    (<&.&>) = flip (<$.$>)
-
 encodeSessionEvent :: SessionEvent -> (Encoding, Encoding)
 encodeSessionEvent = \case
   Connecting :=> Identity v -> (encodeTag 0 <> encodeNull, encode v)
@@ -174,135 +134,38 @@ encodeSessionEvent = \case
   LostConnection :=> Identity v -> (encodeTag 7 <> encodeNull, encode v)
   EndedSession :=> Identity v -> (encodeTag 8 <> encodeNull, encode v)
 
-decodeSessionEvent :: Decoder s (Decoder s SessionEvent)
-decodeSessionEvent = decodeTag >>= \case
-  0 -> decodeNull >> (return $ (Connecting ==>) <$> decode)
-  1 -> decodeNull >> (return $ (Connected ==>) <$> decode)
-  2 -> decodeNull >> (return $ (FailedToConnect ==>) <$> decode)
-  3 -> decodeNull >> (return $ (ReceivedUninterpretedMessage ==>) <$> decode)
-  4 -> decodeNull >> (return $ (SessionUnableTo ==>) <$> decode)
-  5 -> decodeNull >> (return $ (SentQuit ==>) <$> decode)
-  6 -> decodeNull >> (return $ (EndedConnection ==>) <$> decode)
-  7 -> decodeNull >> (return $ (LostConnection ==>) <$> decode)
-  8 -> decodeNull >> (return $ (EndedConnection ==>) <$> decode)
+decodeDSumWithTag :: (Serialise a, Applicative f) => tag a -> Decoder s (DSum tag f)
+decodeDSumWithTag tag = (tag ==>) <$> decode
+
+decodeClientEvent :: Decoder s (Decoder s ClientEvent)
+decodeClientEvent = decodeTag >>= \case
+  0 -> decodeTrivial SessionStarted
+  1 -> do
+    sessionName <- decodeString
+    decodeNull
+    decodeSessionEvent <&.&> \(sessionEventHeader :=> v) ->
+      FromSession (Identity (sessionName, Identity sessionEventHeader)) :=> v
+  2 -> decodeTrivial ClientUnableTo
+  3 -> decodeTrivial ClientEnding
   _ -> undefined
 
-{-
-encodeSessionEventTag :: SessionEventTag a -> Encoding
-encodeSessionEventTag = \case
-  Connecting -> "Connecting."
-  Connected -> "Connected."
-  FailedToConnect -> "FailedToConnect."
-  ReceivedUninterpretedMessage -> "ReceivedUninterpretedMessage."
-  SessionUnableTo -> "SessionUnableTo."
-  SentQuit -> "SentQuit."
-  EndedConnection -> "EndedConnection."
-  LostConnection -> "LostConnection."
-  EndedSession -> "EndedSession."
+  where
+    (<$.$>) = (<$>) . (<$>)
+    (<&.&>) = flip (<$.$>)
+    decodeTrivial tag = decodeNull >> return (decodeDSumWithTag tag)
 
-encodeSessionEventData :: SessionEvent -> ByteString
-encodeSessionEventData = \case
-  (Connecting :=> Identity v) -> encodeBS v
-  (Connected :=> Identity v) -> encodeBS v
-  (FailedToConnect :=> Identity v) -> encodeBS v
-  (ReceivedUninterpretedMessage :=> Identity v) -> encodeBS v
-  (SessionUnableTo :=> Identity v) -> encodeBS v
-  (SentQuit :=> Identity v) -> encodeBS v
-  (EndedConnection :=> Identity v) -> encodeBS v
-  (LostConnection :=> Identity v) -> encodeBS v
-  (EndedSession :=> Identity v) -> encodeBS v
+decodeSessionEvent :: Decoder s (Decoder s SessionEvent)
+decodeSessionEvent = decodeTag >>= \case
+  0 -> decodeTrivial Connecting
+  1 -> decodeTrivial Connected
+  2 -> decodeTrivial FailedToConnect
+  3 -> decodeTrivial ReceivedUninterpretedMessage
+  4 -> decodeTrivial SessionUnableTo
+  5 -> decodeTrivial SentQuit
+  6 -> decodeTrivial EndedConnection
+  7 -> decodeTrivial LostConnection
+  8 -> decodeTrivial EndedSession
+  _ -> undefined
 
   where
-    encodeBS :: Serialise a => a -> ByteString
-    encodeBS = toLazyByteString . encode
-
-decodeSessionEvent :: ByteString -> ByteString -> Either String SessionEvent
-decodeSessionEvent = \case
-  "Connecting." -> decodeAndTagWith Connecting
-  "Connected." -> decodeAndTagWith Connected
-  "FailedToConnect." -> decodeAndTagWith FailedToConnect
-  "ReceivedUninterpretedMessage." -> decodeAndTagWith ReceivedUninterpretedMessage
-  "SessionUnableTo." -> decodeAndTagWith SessionUnableTo
-  "SentQuit." -> decodeAndTagWith SentQuit
-  "EndedConnection." -> decodeAndTagWith EndedConnection
-  "LostConnection." -> decodeAndTagWith LostConnection
-  "EndedSession." -> decodeAndTagWith EndedSession
-  tagBS -> const $ Left $ "Unexpected tag: " ++ BS8.unpack tagBS
-
-  where
-    decodeAndTagWith :: Serialise a => SessionEventTag a -> ByteString -> Either String SessionEvent
-    decodeAndTagWith t = mapBoth show ((t ==>) . snd) . deserialiseFromBytes decode
--}
-{-
-encodeClientEvent :: ClientEvent -> (ByteString, ByteString)
-encodeClientEvent = \case
-  (SessionStarted :=> Identity v) -> ("SessionStarted.", encode v)
-  (FromSession sessionName sessionEventTag :=> Identity v) ->
-    let (sessionEventTagBS, sessionEventValueBS) = encodeSessionEvent (sessionEventTag ==> v)
-    (concat ["FromSession:", ".", encode v)
-  (ClientUnableTo :=> Identity v) -> ("ClientUnableTo.", encode v)
-  (ClientEnding :=> Identity v) -> ("ClientEnding.", encode v)
--}
-
-{-
-encodeClientEventTag :: ClientEventTag a -> ByteString
-encodeClientEventTag = \case
-  SessionStarted -> "SessionStarted."
-  FromSession sessionName sessionEventTag -> BS.concat ["FromSession:", encode sessionName, ".", encodeSessionEventTag sessionEventTag]
-  ClientUnableTo -> "ClientUnableTo."
-  ClientEnding -> "ClientEnding."
--}
-
-{-
-encodeClientEvent :: ClientEvent -> Encoding
-encodeClientEvent = \case
-  (SessionStarted :=> Identity v) -> encodeAndTagWith "SessionStarted." v
-  (FromSession sessionName sessionEventTag :=> Identity v) ->
-    BS.concat ["FromSession:", encode sessionName, ".", encodeSessionEvent (sessionEventTag ==> v)]
-  (ClientUnableTo :=> Identity v) -> encodeAndTagWith "ClientUnableTo." v
-  (ClientEnding :=> Identity v) -> encodeAndTagWith "ClientEnding." v
-  
-  where
-    encodeAndTagWith :: Serialise a => ByteString -> a -> ByteString
-    encodeAndTagWith t = BS.append t . encode
-
-encodeSessionEventTag :: SessionEventTag a -> Encoding
-encodeSessionEventTag = \case
-  Connecting -> "Connecting."
-  Connected -> "Connected."
-  FailedToConnect -> "FailedToConnect."
-  ReceivedUninterpretedMessage -> "ReceivedUninterpretedMessage."
-  SessionUnableTo -> "SessionUnableTo."
-  SentQuit -> "SentQuit."
-  EndedConnection -> "EndedConnection."
-  LostConnection -> "LostConnection."
-  EndedSession -> "EndedSession."
-
-encodeSessionEventData :: SessionEvent -> ByteString
-encodeSessionEventData = \case
-  (Connecting :=> Identity v) -> encode v
-  (Connected :=> Identity v) -> encode v
-  (FailedToConnect :=> Identity v) -> encode v
-  (ReceivedUninterpretedMessage :=> Identity v) -> encode v
-  (SessionUnableTo :=> Identity v) -> encode v
-  (SentQuit :=> Identity v) -> encode v
-  (EndedConnection :=> Identity v) -> encode v
-  (LostConnection :=> Identity v) -> encode v
-  (EndedSession :=> Identity v) -> encode v
-
-encodeSessionEvent :: SessionEvent -> ByteString
-encodeSessionEvent = \case
-  (Connecting :=> Identity v) -> encodeAndTagWith "Connecting." v
-  (Connected :=> Identity v) -> encodeAndTagWith "Connected." v
-  (FailedToConnect :=> Identity v) -> encodeAndTagWith "FailedToConnect." v
-  (ReceivedUninterpretedMessage :=> Identity v) -> encodeAndTagWith "ReceivedUninterpretedMessage." v
-  (SessionUnableTo :=> Identity v) -> encodeAndTagWith "SessionUnableTo." v
-  (SentQuit :=> Identity v) -> encodeAndTagWith "SentQuit." v
-  (EndedConnection :=> Identity v) -> encodeAndTagWith "EndedConnection." v
-  (LostConnection :=> Identity v) -> encodeAndTagWith "LostConnection." v
-  (EndedSession :=> Identity v) -> encodeAndTagWith "EndedSession." v
-  
-  where
-    encodeAndTagWith :: Serialise a => ByteString -> a -> ByteString
-    encodeAndTagWith t = BS.append t . encode
--}
+    decodeTrivial tag = decodeNull >> return (decodeDSumWithTag tag)
