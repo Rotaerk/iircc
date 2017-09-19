@@ -58,9 +58,11 @@ instance Serialise SessionCommand
 
 data ClientEventTag f a where
   SessionStarted :: ClientEventTag f SessionName
-  FromSession :: f (SessionName, f (SessionEventTag f a)) -> ClientEventTag f a
+  FromSessionF :: f (SessionName, f (SessionEventTag f a)) -> ClientEventTag f a
   ClientUnableTo :: ClientEventTag f (ClientCommand, ErrorMessage)
   ClientEnding :: ClientEventTag f ()
+
+pattern FromSession sessionName sessionEventTag = FromSessionF (Identity (sessionName, Identity sessionEventTag))
 
 type ClientEventFilter = ClientEventTag Maybe
 type ClientEventHeader = ClientEventTag Identity
@@ -112,7 +114,7 @@ data ChannelEventTag a where
 encodeClientEventTag :: Foldable f => ClientEventTag f a -> Encoding
 encodeClientEventTag = (<> encodeNull) . \case
   SessionStarted -> encodeTag SessionStartedTagNum
-  FromSession details ->
+  FromSessionF details ->
     encodeTag FromSessionTagNum <> (
       foldFor details $ \(sessionName, sessionEventTags) ->
         encodeString sessionName <> foldFor sessionEventTags encodeSessionEventTag
@@ -139,7 +141,7 @@ encodeSessionEventTag = \case
 encodeClientEventData :: ClientEvent -> Encoding
 encodeClientEventData = \case
   SessionStarted :=> Identity v -> encode v
-  FromSession (Identity (_, Identity sessionEventHeader)) :=> Identity v -> encodeSessionEventData (sessionEventHeader ==> v)
+  FromSession _ sessionEventHeader :=> Identity v -> encodeSessionEventData (sessionEventHeader ==> v)
   ClientUnableTo :=> Identity v -> encode v
   ClientEnding :=> Identity v -> encode v
 
@@ -165,8 +167,7 @@ decodeClientEvent = decodeTag >>= \case
   FromSessionTagNum -> do
     sessionName <- decodeString
     decodeNull
-    decodeSessionEvent <&.&> \(sessionEventHeader :=> v) ->
-      FromSession (Identity (sessionName, Identity sessionEventHeader)) :=> v
+    decodeSessionEvent <&.&> \(sessionEventHeader :=> v) -> FromSession sessionName sessionEventHeader :=> v
   ClientUnableToTagNum -> decodeTrivial ClientUnableTo
   ClientEndingTagNum -> decodeTrivial ClientEnding
   _ -> undefined
