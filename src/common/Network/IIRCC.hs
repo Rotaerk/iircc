@@ -4,6 +4,8 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Network.IIRCC where
 
@@ -64,6 +66,11 @@ type ClientEventFilter = ClientEventTag Maybe
 type ClientEventHeader = ClientEventTag Identity
 type ClientEvent = DSum ClientEventHeader Identity
 
+pattern SessionStartedTagNum = 0
+pattern FromSessionTagNum = 1
+pattern ClientUnableToTagNum = 2
+pattern ClientEndingTagNum = 3
+
 data SessionEventTag (f :: * -> *) a where
   Connecting :: SessionEventTag f (HostName, PortNumber)
   Connected :: SessionEventTag f ()
@@ -80,6 +87,17 @@ type SessionEventFilter = SessionEventTag Maybe
 type SessionEventHeader = SessionEventTag Identity
 type SessionEvent = DSum SessionEventHeader Identity
 
+pattern ConnectingTagNum = 0
+pattern ConnectedTagNum = 1
+pattern FailedToConnectTagNum = 2
+--pattern FromChannelTagNum = 3
+pattern ReceivedUninterpretedMessageTagNum = 4
+pattern SessionUnableToTagNum = 5
+pattern SentQuitTagNum = 6
+pattern EndedConnectionTagNum = 7
+pattern LostConnectionTagNum = 8
+pattern EndedSessionTagNum = 9
+
 --data ChannelEventTag a where
 --  ReceivedMessage :: ChannelEventTag Text
 --  SentMessage :: ChannelEventTag Text
@@ -88,65 +106,69 @@ type SessionEvent = DSum SessionEventHeader Identity
 data ChannelEventTag a where
 -}
 
--- The encoding of a filter needs to be a prefix of a valid header encoding.
-encodeClientEventFilter :: ClientEventFilter a -> Encoding
-encodeClientEventFilter = \case
-  SessionStarted -> encodeTag 0 <> encodeNull
-  FromSession Nothing -> encodeTag 1
-  FromSession (Just (sessionName, Nothing)) -> encodeTag 1 <> encodeString sessionName <> encodeNull
-  FromSession (Just (sessionName, Just sessionEventFilter)) -> encodeTag 1 <> encodeString sessionName <> encodeNull <> encodeSessionEventFilter sessionEventFilter
-  ClientUnableTo -> encodeTag 2 <> encodeNull
-  ClientEnding -> encodeTag 3 <> encodeNull
-
-encodeSessionEventFilter :: SessionEventFilter a -> Encoding
-encodeSessionEventFilter = \case
-  Connecting -> encodeTag 0 <> encodeNull
-  Connected -> encodeTag 1 <> encodeNull
-  FailedToConnect -> encodeTag 2 <> encodeNull
-  --FromChannel -> encodeTag 3
-  ReceivedUninterpretedMessage -> encodeTag 4 <> encodeNull
-  SessionUnableTo -> encodeTag 5 <> encodeNull
-  SentQuit -> encodeTag 6 <> encodeNull
-  EndedConnection -> encodeTag 7 <> encodeNull
-  LostConnection -> encodeTag 8 <> encodeNull
-  EndedSession -> encodeTag 9 <> encodeNull
-
-encodeClientEvent :: ClientEvent -> (Encoding, Encoding)
-encodeClientEvent = \case
-  SessionStarted :=> Identity v -> (encodeTag 0 <> encodeNull, encode v)
-  FromSession (Identity (sessionName, Identity sessionEventHeader)) :=> Identity v ->
-    mapFst (mappend $ encodeTag 1 <> encodeString sessionName <> encodeNull) $ encodeSessionEvent (sessionEventHeader ==> v)
-  ClientUnableTo :=> Identity v -> (encodeTag 2 <> encodeNull, encode v)
-  ClientEnding :=> Identity v -> (encodeTag 3 <> encodeNull, encode v)
+-- This looks generalized enough to handle any foldable structure, but it will ultimately
+-- only be needed for Identity (1 element) or Maybe (0 or 1 element).  Untested for other
+-- foldable types.  Implementing this way just saves us from code duplication.
+encodeClientEventTag :: Foldable f => ClientEventTag f a -> Encoding
+encodeClientEventTag = (<> encodeNull) . \case
+  SessionStarted -> encodeTag SessionStartedTagNum
+  FromSession details ->
+    encodeTag FromSessionTagNum <> (
+      foldFor details $ \(sessionName, sessionEventTags) ->
+        encodeString sessionName <> foldFor sessionEventTags encodeSessionEventTag
+    )
+  ClientUnableTo -> encodeTag ClientUnableToTagNum
+  ClientEnding -> encodeTag ClientEndingTagNum
 
   where
-    mapFst f (a, b) = (f a, b)
+    foldFor = flip foldMap
 
-encodeSessionEvent :: SessionEvent -> (Encoding, Encoding)
-encodeSessionEvent = \case
-  Connecting :=> Identity v -> (encodeTag 0 <> encodeNull, encode v)
-  Connected :=> Identity v -> (encodeTag 1 <> encodeNull, encode v)
-  FailedToConnect :=> Identity v -> (encodeTag 2 <> encodeNull, encode v)
-  ReceivedUninterpretedMessage :=> Identity v -> (encodeTag 3 <> encodeNull, encode v)
-  SessionUnableTo :=> Identity v -> (encodeTag 4 <> encodeNull, encode v)
-  SentQuit :=> Identity v -> (encodeTag 5 <> encodeNull, encode v)
-  EndedConnection :=> Identity v -> (encodeTag 6 <> encodeNull, encode v)
-  LostConnection :=> Identity v -> (encodeTag 7 <> encodeNull, encode v)
-  EndedSession :=> Identity v -> (encodeTag 8 <> encodeNull, encode v)
+encodeSessionEventTag :: SessionEventTag f a -> Encoding
+encodeSessionEventTag = \case
+  Connecting -> encodeTag ConnectingTagNum <> encodeNull
+  Connected -> encodeTag ConnectedTagNum <> encodeNull
+  FailedToConnect -> encodeTag FailedToConnectTagNum <> encodeNull
+  --FromChannel -> encodeTag FromChannelTagNum <> encodeNull
+  ReceivedUninterpretedMessage -> encodeTag ReceivedUninterpretedMessageTagNum <> encodeNull
+  SessionUnableTo -> encodeTag SessionUnableToTagNum <> encodeNull
+  SentQuit -> encodeTag SentQuitTagNum <> encodeNull
+  EndedConnection -> encodeTag EndedConnectionTagNum <> encodeNull
+  LostConnection -> encodeTag LostConnectionTagNum <> encodeNull
+  EndedSession -> encodeTag EndedSessionTagNum <> encodeNull
+
+encodeClientEventData :: ClientEvent -> Encoding
+encodeClientEventData = \case
+  SessionStarted :=> Identity v -> encode v
+  FromSession (Identity (_, Identity sessionEventHeader)) :=> Identity v -> encodeSessionEventData (sessionEventHeader ==> v)
+  ClientUnableTo :=> Identity v -> encode v
+  ClientEnding :=> Identity v -> encode v
+
+encodeSessionEventData :: SessionEvent -> Encoding
+encodeSessionEventData = \case
+  Connecting :=> Identity v -> encode v
+  Connected :=> Identity v -> encode v
+  FailedToConnect :=> Identity v -> encode v
+  --FromChannel :=> Identity v -> encode v
+  ReceivedUninterpretedMessage :=> Identity v -> encode v
+  SessionUnableTo :=> Identity v -> encode v
+  SentQuit :=> Identity v -> encode v
+  EndedConnection :=> Identity v -> encode v
+  LostConnection :=> Identity v -> encode v
+  EndedSession :=> Identity v -> encode v
 
 decodeDSumWithTag :: (Serialise a, Applicative f) => tag a -> Decoder s (DSum tag f)
 decodeDSumWithTag tag = (tag ==>) <$> decode
 
 decodeClientEvent :: Decoder s (Decoder s ClientEvent)
 decodeClientEvent = decodeTag >>= \case
-  0 -> decodeTrivial SessionStarted
-  1 -> do
+  SessionStartedTagNum -> decodeTrivial SessionStarted
+  FromSessionTagNum -> do
     sessionName <- decodeString
     decodeNull
     decodeSessionEvent <&.&> \(sessionEventHeader :=> v) ->
       FromSession (Identity (sessionName, Identity sessionEventHeader)) :=> v
-  2 -> decodeTrivial ClientUnableTo
-  3 -> decodeTrivial ClientEnding
+  ClientUnableToTagNum -> decodeTrivial ClientUnableTo
+  ClientEndingTagNum -> decodeTrivial ClientEnding
   _ -> undefined
 
   where
@@ -156,15 +178,15 @@ decodeClientEvent = decodeTag >>= \case
 
 decodeSessionEvent :: Decoder s (Decoder s SessionEvent)
 decodeSessionEvent = decodeTag >>= \case
-  0 -> decodeTrivial Connecting
-  1 -> decodeTrivial Connected
-  2 -> decodeTrivial FailedToConnect
-  3 -> decodeTrivial ReceivedUninterpretedMessage
-  4 -> decodeTrivial SessionUnableTo
-  5 -> decodeTrivial SentQuit
-  6 -> decodeTrivial EndedConnection
-  7 -> decodeTrivial LostConnection
-  8 -> decodeTrivial EndedSession
+  ConnectingTagNum -> decodeTrivial Connecting
+  ConnectedTagNum -> decodeTrivial Connected
+  FailedToConnectTagNum -> decodeTrivial FailedToConnect
+  ReceivedUninterpretedMessageTagNum -> decodeTrivial ReceivedUninterpretedMessage
+  SessionUnableToTagNum -> decodeTrivial SessionUnableTo
+  SentQuitTagNum -> decodeTrivial SentQuit
+  EndedConnectionTagNum -> decodeTrivial EndedConnection
+  LostConnectionTagNum -> decodeTrivial LostConnection
+  EndedSessionTagNum -> decodeTrivial EndedSession
   _ -> undefined
 
   where
